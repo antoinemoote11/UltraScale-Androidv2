@@ -12,6 +12,7 @@ permissions:
 
 jobs:
   build:
+    name: Build UltraScale APK
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -19,18 +20,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Java 17
+      - name: Install Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
 
-      - name: Install Gradle
+      - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.9"
 
-      - name: Generate UltraScale
+      - name: Generate Android project
         shell: bash
         run: |
           set -euo pipefail
@@ -45,6 +46,7 @@ jobs:
                   gradlePluginPortal()
               }
           }
+
           dependencyResolutionManagement {
               repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
               repositories {
@@ -52,6 +54,7 @@ jobs:
                   mavenCentral()
               }
           }
+
           rootProject.name = "UltraScale"
           include(":app")
           EOF
@@ -82,8 +85,8 @@ jobs:
                   applicationId = "com.ultrascale.mobile"
                   minSdk = 26
                   targetSdk = 35
-                  versionCode = 2
-                  versionName = "2.0"
+                  versionCode = 3
+                  versionName = "3.0"
               }
 
               compileOptions {
@@ -138,11 +141,11 @@ jobs:
           import android.widget.TextView
           import androidx.activity.ComponentActivity
           import androidx.activity.result.contract.ActivityResultContracts
-          import androidx.media3.common.Effects
           import androidx.media3.common.MediaItem
           import androidx.media3.common.util.UnstableApi
-          import androidx.media3.effect.Contrast
+          import androidx.media3.effect.RgbFilter
           import androidx.media3.transformer.EditedMediaItem
+          import androidx.media3.transformer.Effects
           import androidx.media3.transformer.ExportException
           import androidx.media3.transformer.ExportResult
           import androidx.media3.transformer.Transformer
@@ -153,20 +156,19 @@ jobs:
           class MainActivity : ComponentActivity() {
 
               private lateinit var status: TextView
-              private lateinit var choose: Button
-              private lateinit var export: Button
-              private var inputUri: Uri? = null
+              private lateinit var chooseButton: Button
+              private lateinit var exportButton: Button
+              private var selectedUri: Uri? = null
               private var transformer: Transformer? = null
-              private var outputFile: File? = null
 
-              private val picker =
+              private val videoPicker =
                   registerForActivityResult(
                       ActivityResultContracts.GetContent()
                   ) { uri: Uri? ->
-                      inputUri = uri
+                      selectedUri = uri
                       if (uri != null) {
-                          status.text = "Vidéo prête.\nLance l'export pour la traiter."
-                          export.isEnabled = true
+                          status.text = "Vidéo sélectionnée !\nPrête à être exportée."
+                          exportButton.isEnabled = true
                       } else {
                           status.text = "Aucune vidéo sélectionnée."
                       }
@@ -181,141 +183,121 @@ jobs:
                   val root = LinearLayout(this).apply {
                       orientation = LinearLayout.VERTICAL
                       gravity = Gravity.CENTER
-                      setPadding(28, 32, 28, 32)
+                      setPadding(26, 32, 26, 32)
                       setBackgroundColor(android.graphics.Color.rgb(12, 15, 25))
                   }
 
-                  fun text(value: String, size: Float, color: Int) =
-                      TextView(this).apply {
-                          text = value
-                          textSize = size
-                          gravity = Gravity.CENTER
-                          setTextColor(color)
-                      }
+                  fun makeText(
+                      value: String,
+                      size: Float,
+                      color: Int
+                  ) = TextView(this).apply {
+                      text = value
+                      textSize = size
+                      gravity = Gravity.CENTER
+                      setTextColor(color)
+                  }
 
-                  val title = text(
+                  val title = makeText(
                       "ULTRASCALE",
                       30f,
                       android.graphics.Color.WHITE
                   )
-                  val subtitle = text(
+
+                  val subtitle = makeText(
                       "VIDEO ENHANCER",
                       13f,
                       android.graphics.Color.rgb(80, 205, 255)
                   )
 
-                  status = text(
+                  status = makeText(
                       "Choisis une vidéo pour commencer.",
                       16f,
                       android.graphics.Color.LTGRAY
                   )
 
-                  choose = Button(this).apply {
+                  chooseButton = Button(this).apply {
                       text = "CHOISIR UNE VIDÉO"
-                      setOnClickListener { picker.launch("video/*") }
+                      setOnClickListener {
+                          videoPicker.launch("video/*")
+                      }
                   }
 
-                  export = Button(this).apply {
+                  exportButton = Button(this).apply {
                       text = "AMÉLIORER ET ENREGISTRER"
                       isEnabled = false
-                      setOnClickListener { startExport() }
+                      setOnClickListener {
+                          startExport()
+                      }
                   }
 
-                  val note = text(
-                      "Export local • Enregistrement dans la galerie\n" +
-                      "Filtre de contraste léger. IA et interpolation 60 FPS non intégrées.",
+                  val note = makeText(
+                      "Traitement local\n" +
+                      "Filtre de contraste léger et export MP4.\n" +
+                      "Interpolation IA 60 FPS non disponible dans cette version.",
                       12f,
                       android.graphics.Color.LTGRAY
                   )
 
-                  listOf(title, subtitle, status, choose, export, note)
-                      .forEach { view ->
-                          root.addView(
-                              view,
-                              LinearLayout.LayoutParams(
-                                  ViewGroup.LayoutParams.MATCH_PARENT,
-                                  ViewGroup.LayoutParams.WRAP_CONTENT
-                              ).apply { bottomMargin = 12 }
-                          )
-                      }
+                  listOf(
+                      title,
+                      subtitle,
+                      status,
+                      chooseButton,
+                      exportButton,
+                      note
+                  ).forEach { view ->
+                      root.addView(
+                          view,
+                          LinearLayout.LayoutParams(
+                              ViewGroup.LayoutParams.MATCH_PARENT,
+                              ViewGroup.LayoutParams.WRAP_CONTENT
+                          ).apply {
+                              bottomMargin = 12
+                          }
+                      )
+                  }
 
                   setContentView(root)
               }
 
               private fun startExport() {
-                  val source = inputUri ?: return
-                  choose.isEnabled = false
-                  export.isEnabled = false
-                  status.text = "Traitement vidéo en cours…"
+                  val source = selectedUri ?: return
 
-                  val file = File(
+                  chooseButton.isEnabled = false
+                  exportButton.isEnabled = false
+                  status.text = "Traitement en cours…"
+
+                  val outputFile = File(
                       cacheDir,
-                      "UltraScale_${System.currentTimeMillis()}.mp4"
+                      "ultrascale_${System.currentTimeMillis()}.mp4"
                   )
-                  outputFile = file
 
                   val listener = object : Transformer.Listener {
+
                       override fun onCompleted(
                           composition: androidx.media3.transformer.Composition,
                           exportResult: ExportResult
                       ) {
                           Thread {
                               try {
-                                  val values = ContentValues().apply {
-                                      put(
-                                          MediaStore.Video.Media.DISPLAY_NAME,
-                                          "UltraScale_${System.currentTimeMillis()}.mp4"
-                                      )
-                                      put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
-                                      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                                          put(
-                                              MediaStore.Video.Media.RELATIVE_PATH,
-                                              "Movies/UltraScale"
-                                          )
-                                          put(MediaStore.Video.Media.IS_PENDING, 1)
-                                      }
-                                  }
-
-                                  val collection =
-                                      MediaStore.Video.Media.EXTERNAL_CONTENT_URI
-
-                                  val savedUri = contentResolver.insert(
-                                      collection,
-                                      values
-                                  ) ?: error("Impossible de créer le fichier dans la galerie.")
-
-                                  try {
-                                      contentResolver.openOutputStream(savedUri)?.use { out ->
-                                          FileInputStream(file).use { input ->
-                                              input.copyTo(out)
-                                          }
-                                      } ?: error("Impossible d'écrire la vidéo.")
-
-                                      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                                          val ready = ContentValues().apply {
-                                              put(MediaStore.Video.Media.IS_PENDING, 0)
-                                          }
-                                          contentResolver.update(savedUri, ready, null, null)
-                                      }
-
-                                      runOnUiThread {
-                                          status.text =
-                                              "Terminé ! Vidéo enregistrée dans Movies/UltraScale."
-                                          choose.isEnabled = true
-                                          export.isEnabled = true
-                                      }
-                                  } catch (e: Exception) {
-                                      contentResolver.delete(savedUri, null, null)
-                                      throw e
+                                  saveToGallery(outputFile)
+                                  runOnUiThread {
+                                      status.text =
+                                          "Terminé !\nVidéo enregistrée dans Movies/UltraScale."
+                                      chooseButton.isEnabled = true
+                                      exportButton.isEnabled = true
                                   }
                               } catch (e: Exception) {
                                   runOnUiThread {
                                       status.text =
-                                          "Export réalisé, mais sauvegarde galerie échouée : " +
+                                          "Export terminé, mais sauvegarde impossible : " +
                                           (e.localizedMessage ?: "erreur inconnue")
-                                      choose.isEnabled = true
-                                      export.isEnabled = true
+                                      chooseButton.isEnabled = true
+                                      exportButton.isEnabled = true
                                   }
+                              } finally {
+                                  outputFile.delete()
                               }
                           }.start()
                       }
@@ -326,9 +308,11 @@ jobs:
                           exportException: ExportException
                       ) {
                           runOnUiThread {
-                              status.text = "Échec du traitement : ${exportException.message}"
-                              choose.isEnabled = true
-                              export.isEnabled = true
+                              status.text =
+                                  "Échec de l'export : " +
+                                  (exportException.localizedMessage ?: "erreur inconnue")
+                              chooseButton.isEnabled = true
+                              exportButton.isEnabled = true
                           }
                       }
                   }
@@ -336,10 +320,10 @@ jobs:
                   try {
                       val effects = Effects(
                           emptyList(),
-                          listOf(Contrast(0.08f))
+                          listOf(RgbFilter.createContrast(1.08f))
                       )
 
-                      val edited = EditedMediaItem.Builder(
+                      val editedItem = EditedMediaItem.Builder(
                           MediaItem.fromUri(source)
                       )
                           .setEffects(effects)
@@ -349,23 +333,68 @@ jobs:
                           .addListener(listener)
                           .build()
 
-                      transformer?.start(edited, file.absolutePath)
+                      transformer?.start(editedItem, outputFile.absolutePath)
                   } catch (e: Exception) {
-                      status.text = "Erreur : ${e.localizedMessage ?: "export impossible"}"
-                      choose.isEnabled = true
-                      export.isEnabled = true
+                      status.text =
+                          "Impossible de démarrer : " +
+                          (e.localizedMessage ?: "erreur inconnue")
+                      chooseButton.isEnabled = true
+                      exportButton.isEnabled = true
+                  }
+              }
+
+              private fun saveToGallery(file: File) {
+                  val values = ContentValues().apply {
+                      put(
+                          MediaStore.Video.Media.DISPLAY_NAME,
+                          "UltraScale_${System.currentTimeMillis()}.mp4"
+                      )
+                      put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
+
+                      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                          put(
+                              MediaStore.Video.Media.RELATIVE_PATH,
+                              "Movies/UltraScale"
+                          )
+                          put(MediaStore.Video.Media.IS_PENDING, 1)
+                      }
+                  }
+
+                  val collection = MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+                  val uri = contentResolver.insert(collection, values)
+                      ?: error("Android n'a pas pu créer le fichier vidéo.")
+
+                  try {
+                      val output = contentResolver.openOutputStream(uri)
+                          ?: error("Impossible d'ouvrir le fichier de destination.")
+
+                      output.use { destination ->
+                          FileInputStream(file).use { input ->
+                              input.copyTo(destination)
+                          }
+                      }
+
+                      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                          val ready = ContentValues().apply {
+                              put(MediaStore.Video.Media.IS_PENDING, 0)
+                          }
+                          contentResolver.update(uri, ready, null, null)
+                      }
+                  } catch (e: Exception) {
+                      contentResolver.delete(uri, null, null)
+                      throw e
                   }
               }
           }
           EOF
 
-      - name: Build APK
+      - name: Compile APK
         run: gradle --no-daemon assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: UltraScale-Android-v2-APK
+          name: UltraScale-Android-v3-APK
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 7
