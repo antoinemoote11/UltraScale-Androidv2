@@ -12,24 +12,31 @@ permissions:
 
 jobs:
   build:
+    name: Compile Android APK
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+
     steps:
-      - name: Installer Java
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
 
-      - name: Installer Gradle
+      - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.9"
 
-      - name: Générer le projet Android
+      - name: Generate Android project
         shell: bash
         run: |
+          set -euo pipefail
+
           mkdir -p app/src/main/java/com/ultrascale/mobile
-          mkdir -p app/src/main/res/values
 
           cat > settings.gradle.kts <<'EOF'
           pluginManagement {
@@ -39,6 +46,7 @@ jobs:
                   gradlePluginPortal()
               }
           }
+
           dependencyResolutionManagement {
               repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
               repositories {
@@ -46,6 +54,7 @@ jobs:
                   mavenCentral()
               }
           }
+
           rootProject.name = "UltraScale"
           include(":app")
           EOF
@@ -77,7 +86,7 @@ jobs:
                   minSdk = 26
                   targetSdk = 35
                   versionCode = 1
-                  versionName = "1.0"
+                  versionName = "1.0.0"
               }
 
               compileOptions {
@@ -91,6 +100,7 @@ jobs:
           }
 
           dependencies {
+              implementation("androidx.activity:activity-ktx:1.10.1")
               implementation("androidx.media3:media3-common:1.5.1")
               implementation("androidx.media3:media3-transformer:1.5.1")
           }
@@ -100,10 +110,9 @@ jobs:
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
               <application
-                  android:theme="@android:style/Theme.Material.NoActionBar"
+                  android:allowBackup="false"
                   android:label="UltraScale"
-                  android:usesCleartextTraffic="false"
-                  android:allowBackup="false">
+                  android:theme="@android:style/Theme.Material.NoActionBar">
                   <activity
                       android:name=".MainActivity"
                       android:exported="true">
@@ -119,16 +128,16 @@ jobs:
           cat > app/src/main/java/com/ultrascale/mobile/MainActivity.kt <<'EOF'
           package com.ultrascale.mobile
 
-          import android.app.Activity
-          import android.os.Bundle
           import android.graphics.Color
           import android.net.Uri
+          import android.os.Bundle
           import android.view.Gravity
           import android.view.ViewGroup
           import android.widget.Button
           import android.widget.LinearLayout
           import android.widget.TextView
           import android.widget.Toast
+          import androidx.activity.ComponentActivity
           import androidx.activity.result.contract.ActivityResultContracts
           import androidx.media3.common.MediaItem
           import androidx.media3.transformer.EditedMediaItem
@@ -137,26 +146,32 @@ jobs:
           import androidx.media3.transformer.Transformer
           import java.io.File
 
-          class MainActivity : Activity() {
+          class MainActivity : ComponentActivity() {
+
               private lateinit var status: TextView
+              private lateinit var chooseButton: Button
               private lateinit var exportButton: Button
               private var selectedVideo: Uri? = null
               private var transformer: Transformer? = null
 
-              private val picker =
-                  registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+              private val videoPicker =
+                  registerForActivityResult(
+                      ActivityResultContracts.GetContent()
+                  ) { uri: Uri? ->
+                      selectedVideo = uri
                       if (uri != null) {
-                          selectedVideo = uri
-                          status.text = "Vidéo sélectionnée ✓\nPrête pour l'export."
+                          status.text = "Vidéo sélectionnée !\nPrête pour l'export."
                           exportButton.isEnabled = true
+                      } else {
+                          status.text = "Aucune vidéo sélectionnée."
                       }
                   }
 
               override fun onCreate(savedInstanceState: Bundle?) {
                   super.onCreate(savedInstanceState)
+
                   window.statusBarColor = Color.rgb(12, 15, 25)
                   window.navigationBarColor = Color.rgb(12, 15, 25)
-                  window.decorView.systemUiVisibility = 0
 
                   val root = LinearLayout(this).apply {
                       orientation = LinearLayout.VERTICAL
@@ -168,80 +183,91 @@ jobs:
                   val title = TextView(this).apply {
                       text = "ULTRASCALE"
                       textSize = 30f
-                      setTextColor(Color.WHITE)
                       gravity = Gravity.CENTER
+                      setTextColor(Color.WHITE)
                   }
 
                   val subtitle = TextView(this).apply {
-                      text = "VIDEO STUDIO  •  ANDROID"
-                      textSize = 12f
-                      setTextColor(Color.rgb(100, 210, 255))
+                      text = "VIDEO STUDIO"
+                      textSize = 13f
                       gravity = Gravity.CENTER
+                      setTextColor(Color.rgb(80, 205, 255))
                   }
 
                   status = TextView(this).apply {
-                      text = "Donne une seconde vie à tes vidéos.\n\nChoisis une vidéo pour commencer."
+                      text = "Donne une nouvelle vie à tes vidéos.\n\nSélectionne une vidéo pour commencer."
                       textSize = 16f
-                      setTextColor(Color.rgb(220, 225, 240))
                       gravity = Gravity.CENTER
-                      setPadding(0, 36, 0, 36)
+                      setTextColor(Color.rgb(225, 230, 240))
+                      setPadding(0, 32, 0, 32)
                   }
 
-                  val chooseButton = Button(this).apply {
+                  chooseButton = Button(this).apply {
                       text = "CHOISIR UNE VIDÉO"
-                      setOnClickListener { picker.launch("video/*") }
+                      setOnClickListener {
+                          videoPicker.launch("video/*")
+                      }
                   }
 
                   exportButton = Button(this).apply {
                       text = "EXPORTER LA VIDÉO"
                       isEnabled = false
-                      setOnClickListener { exportVideo() }
+                      setOnClickListener {
+                          exportVideo()
+                      }
                   }
 
                   val note = TextView(this).apply {
-                      text = "Version 1.0 • Traitement local\nL'amélioration IA avancée sera ajoutée dans une prochaine version."
+                      text = "Traitement local • Version 1.0\nL'amélioration IA sera ajoutée ensuite."
                       textSize = 12f
-                      setTextColor(Color.LTGRAY)
                       gravity = Gravity.CENTER
-                      setPadding(0, 28, 0, 0)
+                      setTextColor(Color.LTGRAY)
+                      setPadding(0, 24, 0, 0)
                   }
 
-                  root.addView(title, match())
-                  root.addView(subtitle, match())
-                  root.addView(status, match())
-                  root.addView(chooseButton, match())
-                  root.addView(exportButton, match())
-                  root.addView(note, match())
+                  listOf(title, subtitle, status, chooseButton, exportButton, note)
+                      .forEach { view ->
+                          root.addView(
+                              view,
+                              LinearLayout.LayoutParams(
+                                  ViewGroup.LayoutParams.MATCH_PARENT,
+                                  ViewGroup.LayoutParams.WRAP_CONTENT
+                              ).apply {
+                                  bottomMargin = 12
+                              }
+                          )
+                      }
+
                   setContentView(root)
               }
 
-              private fun match(): LinearLayout.LayoutParams =
-                  LinearLayout.LayoutParams(
-                      ViewGroup.LayoutParams.MATCH_PARENT,
-                      ViewGroup.LayoutParams.WRAP_CONTENT
-                  ).apply { bottomMargin = 12 }
-
               private fun exportVideo() {
-                  val uri = selectedVideo ?: return
-                  exportButton.isEnabled = false
-                  status.text = "Préparation de l'export…"
+                  val input = selectedVideo ?: return
+                  val output = File(
+                      getExternalFilesDir(null) ?: cacheDir,
+                      "UltraScale_${System.currentTimeMillis()}.mp4"
+                  )
 
-                  val output = File(cacheDir, "UltraScale_${System.currentTimeMillis()}.mp4")
-                  val item = EditedMediaItem.Builder(MediaItem.fromUri(uri)).build()
+                  chooseButton.isEnabled = false
+                  exportButton.isEnabled = false
+                  status.text = "Export en cours…\nGarde l'application ouverte."
 
                   val listener = object : Transformer.Listener {
+
                       override fun onCompleted(
                           composition: androidx.media3.transformer.Composition,
                           exportResult: ExportResult
                       ) {
                           runOnUiThread {
-                              status.text = "Export terminé ✓\nFichier : ${output.name}\nEmplacement temporaire de l'application."
+                              status.text =
+                                  "Export terminé !\nFichier : ${output.name}\nEnregistré dans l'espace de l'application."
+                              chooseButton.isEnabled = true
+                              exportButton.isEnabled = true
                               Toast.makeText(
                                   this@MainActivity,
-                                  "Export terminé",
+                                  "Vidéo exportée",
                                   Toast.LENGTH_LONG
                               ).show()
-                              exportButton.isEnabled = true
                           }
                       }
 
@@ -251,32 +277,41 @@ jobs:
                           exportException: ExportException
                       ) {
                           runOnUiThread {
-                              status.text = "Échec de l'export.\nEssaie avec une autre vidéo."
+                              status.text =
+                                  "Échec de l'export.\nEssaie avec une autre vidéo."
+                              chooseButton.isEnabled = true
                               exportButton.isEnabled = true
                           }
                       }
                   }
 
                   try {
+                      val editedItem = EditedMediaItem.Builder(
+                          MediaItem.fromUri(input)
+                      ).build()
+
                       transformer = Transformer.Builder(this)
                           .addListener(listener)
                           .build()
-                      transformer?.start(item, output.absolutePath)
+
+                      transformer?.start(editedItem, output.absolutePath)
                   } catch (e: Exception) {
-                      status.text = "Impossible de démarrer l'export : ${e.message}"
+                      status.text = "Erreur : ${e.localizedMessage ?: "export impossible"}"
+                      chooseButton.isEnabled = true
                       exportButton.isEnabled = true
                   }
               }
           }
           EOF
 
-      - name: Compiler l'APK
+      - name: Compile debug APK
         run: gradle --no-daemon assembleDebug
 
-      - name: Publier l'APK
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: UltraScale-Android-APK
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+          retention-days: 7
           
